@@ -27,7 +27,7 @@ jobs:
         run: dotnet build --configuration Release --no-restore 
         
       - name: Publish
-        run: dotnet publish ./KansasPPDMLoader/KansasPPDMLoaderConsole/KansasPPDMLoaderConsole.csproj -c Release --self-contained true -r win-x64 -p:PublishSingleFile=true
+        run: dotnet publish ./KansasPPDMLoaderConsole/KansasPPDMLoaderConsole.csproj -c Release --self-contained true -r win-x64 -p:PublishSingleFile=true
         
       - name: View content
         run: dir D:\a\KansasPPDMLoader\KansasPPDMLoaderConsole\bin\Release\net7.0\win-x64\publish\
