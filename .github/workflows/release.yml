@@ -30,13 +30,13 @@ jobs:
         run: dotnet publish ./KansasPPDMLoaderConsole/KansasPPDMLoaderConsole.csproj -c Release --self-contained true -r win-x64 -p:PublishSingleFile=true
         
       - name: View content
-        run: dir D:\a\KansasPPDMLoader\KansasPPDMLoaderConsole\bin\Release\net7.0\win-x64\publish\
+        run: dir D:\a\KansasPPDMLoader\KansasPPDMLoader\KansasPPDMLoaderConsole\bin\Release\net7.0\win-x64\publish\
         
       - name: Upload KansasPPDMLoader Build Artifact
         uses: actions/upload-artifact@v2
         with:
           name: KansasPPDMLoader
-          path: D:\a\TexasPPDMLoader\TexasPPDMLoader\TexasPPDMLoader\bin\Release\net7.0\win-x64\publish\TexasPPDMLoader.exe
+          path: D:\a\KansasPPDMLoader\KansasPPDMLoader\KansasPPDMLoaderConsole\bin\Release\net7.0\win-x64\publish\KansasPPDMLoader.exe
 
       - name: Create release
         id: create-new-release
@@ -47,17 +47,17 @@ jobs:
           tag_name: v${{ github.event.inputs.versionNumber }}
           release_name: Release V${{ github.event.inputs.versionNumber }}
           
-      - name: Download site content TexasPPDMLoader
+      - name: Download site content KansasPPDMLoader
         uses: actions/download-artifact@v2
         with:
-          name: TexasPPDMLoader
+          name: KansasPPDMLoader
           
-      - name: Upload TexasPPDMLoader release asset
+      - name: Upload KansasPPDMLoader release asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create-new-release.outputs.upload_url }}
-          asset_path: ./TexasPPDMLoader.exe
-          asset_name: TexasPPDMLoader.exe
+          asset_path: ./KansasPPDMLoader.exe
+          asset_name: KansasPPDMLoader.exe
           asset_content_type: application/octet-stream
