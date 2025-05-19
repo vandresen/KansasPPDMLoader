@@ -9,8 +9,12 @@ Usage:
   KansasPPDMLoaderConsole [options]
 
 Options:
+
   --connection <connection> (REQUIRED)         Database connection string
+  
   --datatype <Markerpick|Wellbore> (REQUIRED)  Data type to process: Wellbore or Markerpick
+  
   --version                                    Show version information
+  
   -?, -h, --help                               Show help and usage information
 
