@@ -4,6 +4,6 @@ namespace KansasPPDMLoaderLibrary
 {
     public interface IDataTransfer
     {
-        Task Transferdata();
+        Task Transferdata(string connectionString, string datatype);
     }
 }

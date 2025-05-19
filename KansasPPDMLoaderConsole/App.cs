@@ -12,9 +12,9 @@ namespace KansasPPDMLoaderConsole
             _dataTransfer = dataTransfer;
         }
 
-        public async Task Run()
+        public async Task Run(string connectionString, string datatype)
         {
-            await _dataTransfer.Transferdata();
+            await _dataTransfer.Transferdata(connectionString, datatype);
         }
     }
 }

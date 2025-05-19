@@ -20,24 +20,33 @@ namespace KansasPPDMLoaderLibrary
 
         public IConfiguration Configuration { get; }
 
-        public async Task Transferdata()
+        public async Task Transferdata(string connectionString, string datatype)
         {
             try
             {
-                _log.LogInformation("Start Data Transfer");
-                string connectionString = _configuration["ConnectionString"];
+                _log.LogInformation("Start Data Transfer for {DataType}", datatype);
                 IDataAccess da = new DapperDataAccess();
                 IWellData wellData = new Welldata(da, _log);
-                _log.LogInformation("Start Data Copy");
-                await wellData.CopyWellbores(connectionString);
-                _log.LogInformation("Data has been Copied");
+
+                if (datatype.Equals("Wellbore", StringComparison.OrdinalIgnoreCase))
+                {
+                    await wellData.CopyWellbores(connectionString);
+                }
+                else if (datatype.Equals("Markerpick", StringComparison.OrdinalIgnoreCase))
+                {
+                    await wellData.CopyMarkerpicks(connectionString);
+                }
+                else
+                {                    
+                    _log.LogWarning("Unknown datatype: {DataType}", datatype);
+                }
+
+                _log.LogInformation("Data transfer for {DataType} completed.", datatype);
             }
             catch (Exception ex)
             {
-                string errors = "Error transferring data: " + ex.ToString();
-                _log.LogError(errors);
+                _log.LogError(ex, "Error transferring {DataType} data", datatype);
             }
-            
         }
     }
 }

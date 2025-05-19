@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "KansasPPDMLoaderConsole": {
+      "commandName": "Project",
+      "commandLineArgs": "--connection \"Data Source=VIDARSURFACEPRO;Persist Security Info=False;Initial Catalog =Kansas;Integrated Security=True;Encrypt=False;MultipleActiveResultSets=True;Connection Timeout=120\" --datatype Markerpick"
+    }
+  }
+}

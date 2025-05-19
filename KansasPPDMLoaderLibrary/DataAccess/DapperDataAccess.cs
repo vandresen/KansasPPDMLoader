@@ -23,7 +23,7 @@ namespace KansasPPDMLoaderLibrary.DataAccess
         public async Task SaveData<T>(string connectionString, T parameters, string sql)
         {
             using IDbConnection cnn = new SqlConnection(connectionString);
-            await cnn.ExecuteAsync(sql, parameters);
+            await cnn.ExecuteAsync(sql, parameters, commandTimeout: 180);
         }
     }
 }

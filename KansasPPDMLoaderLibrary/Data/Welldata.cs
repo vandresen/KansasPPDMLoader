@@ -1,29 +1,27 @@
-﻿using KansasPPDMLoaderLibrary.Models;
-using System;
-using System.Collections.Generic;
-using System.IO.Compression;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
-using System.Formats.Asn1;
-using System.Globalization;
-using CsvHelper;
+﻿using CsvHelper;
 using CsvHelper.Configuration;
 using KansasPPDMLoaderLibrary.DataAccess;
-using System.Runtime.Intrinsics.Arm;
 using KansasPPDMLoaderLibrary.Extensions;
-using System.Data.SqlTypes;
-using static System.Runtime.InteropServices.JavaScript.JSType;
-using System.Reflection;
+using KansasPPDMLoaderLibrary.Models;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Data.SqlTypes;
+using System.Globalization;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 namespace KansasPPDMLoaderLibrary.Data
 {
     public class Welldata : IWellData
     {
         private readonly string wellBoreUrl = @"https://www.kgs.ku.edu/PRS/Ora_Archive/ks_wells.zip";
+        private readonly string markerPickUrl = @"https://www.kgs.ku.edu/PRS/Ora_Archive/ks_tops.zip";
         private readonly IDataAccess _da;
         private readonly ILogger _log;
 
@@ -68,6 +66,93 @@ namespace KansasPPDMLoaderLibrary.Data
                             _log.LogError("Failed to create the ZipArchive.");
                         }
                     }
+                }
+            }
+        }
+
+        public async Task CopyMarkerpicks(string connectionString)
+        {
+            string targetFileName = "ks_tops.txt";
+            using var stream = await ImportData(markerPickUrl, targetFileName);
+
+            if (stream == null)
+            {
+                _log.LogError("Failed to get marker picks stream.");
+                return;
+            }
+
+            string badRowsFilePath = Path.Combine(Path.GetTempPath(), "bad_rows.txt");
+
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                BadDataFound = args =>
+                {
+                    try
+                    {
+                        File.AppendAllText(badRowsFilePath, $"BAD DATA (BadDataFound): {args.RawRecord}\n");
+                    }
+                    catch { /* Silent fallback if file write fails */ }
+                },
+                MissingFieldFound = null,
+                HeaderValidated = null,
+                IgnoreBlankLines = true,
+            };
+
+            using var reader = new StreamReader(stream);
+            using var csv = new CsvReader(reader, config);
+            csv.Context.RegisterClassMap<MarkerpickMap>();
+
+            var picks = new List<Markerpick>();
+            int rowNum = 0;
+
+            while (await csv.ReadAsync())
+            {
+                rowNum++;
+                var record = csv.GetRecord<Markerpick>();
+
+                record.STRAT_NAME_SET_ID = "KANSAS";
+                record.INTERP_ID = "KANSAS";
+                record.REMARK = $"Downloaded from {markerPickUrl}";
+
+                if (string.IsNullOrEmpty(record.UWI))
+                {
+                    _log.LogError($"UWI is blank or empty, KID = {record.KID}");
+                }
+                else
+                {
+                    picks.Add(record);
+                }
+            }
+
+            _log.LogInformation($"Finished reading {rowNum} rows. Parsed {picks.Count}. Bad rows written to: {badRowsFilePath}");
+
+            await SaveMarkerpickRefData(picks, connectionString);
+            await SaveMarkerpicks(picks, connectionString);
+        }
+
+        private async Task<Stream?> ImportData(string url, string targetFileName)
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                byte[] zipData = await client.GetByteArrayAsync(url);
+
+                var zipStream = new MemoryStream(zipData); // Do NOT dispose — must stay alive
+                var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: true);
+
+                var entry = archive.GetEntry(targetFileName);
+                if (entry != null)
+                {
+                    _log.LogInformation($"Found file: {entry.FullName}");
+
+                    // Return a stream for the file — caller is responsible for disposing
+                    return entry.Open();
+                }
+                else
+                {
+                    _log.LogError($"The file '{targetFileName}' was not found in the archive.");
+                    archive.Dispose();
+                    zipStream.Dispose();
+                    return null;
                 }
             }
         }
@@ -194,7 +279,69 @@ namespace KansasPPDMLoaderLibrary.Data
             await _da.SaveData<IEnumerable<Wellbore>>(connectionString, wellbores, sql);
         }
 
-        public Task<IEnumerable<TableSchema>> GetColumnInfo(string connectionString, string table) =>
+        private async Task SaveMarkerpicks(List<Markerpick> picks, string connectionString)
+        {
+            _log.LogInformation("Start saving markerpick data");
+            string sql = "IF NOT EXISTS(SELECT 1 FROM STRAT_WELL_SECTION WHERE UWI = @UWI AND STRAT_UNIT_ID = @STRAT_UNIT_ID) " +
+                "INSERT INTO STRAT_WELL_SECTION (STRAT_NAME_SET_ID, STRAT_UNIT_ID, UWI, INTERP_ID, DOMINANT_LITHOLOGY, " +
+                "PICK_DEPTH, REMARK) " +
+                "VALUES(@STRAT_NAME_SET_ID, @STRAT_UNIT_ID, @UWI, " +
+                "@INTERP_ID, @DOMINANT_LITHOLOGY, @PICK_DEPTH, @REMARK)";
+            try
+            {
+                var batchSize = 10000;
+                foreach (var batch in picks.Chunk(batchSize))
+                {
+                    await _da.SaveData(connectionString, batch.ToList(), sql);
+                }
+            }
+            catch (Exception ex)
+            {
+                string errorMessage = $"Error saving marker picks to STRAT_WELL_SECTION table.";
+                _log.LogError(ex, errorMessage);
+
+                throw new Exception($"{errorMessage} See inner exception for details.", ex);
+            }
+        }
+
+        private async Task SaveMarkerpickRefData(List<Markerpick> picks, string connectionString)
+        {
+            _log.LogInformation("Start saving markerpick reference data");
+            Dictionary<string, List<ReferenceData>> refDict = new Dictionary<string, List<ReferenceData>>();
+            MarkerpickReferenceTables tables = new MarkerpickReferenceTables();
+
+            List<ReferenceData> refs = picks.Select(x => x.STRAT_NAME_SET_ID).Distinct().ToList().CreateReferenceDataObject();
+            refDict.Add(tables.RefTables[0].Table, refs);
+            refs = picks.Select(x => x.STRAT_UNIT_ID).Distinct().ToList().CreateReferenceDataObject();
+            refDict.Add(tables.RefTables[1].Table, refs);
+
+            foreach (var table in tables.RefTables)
+            {
+                refs = refDict[table.Table];
+                string sql = "";
+                if (table.Table == "STRAT_UNIT")
+                {
+                    sql = $"IF NOT EXISTS(SELECT 1 FROM {table.Table} WHERE {table.KeyAttribute} = @Reference) " +
+                        $"INSERT INTO {table.Table} " +
+                        $"(STRAT_NAME_SET_ID, {table.KeyAttribute}, {table.ValueAttribute}) " +
+                        $"VALUES('KANSAS', @Reference, @Reference)";
+                }
+                else
+                {
+                    sql = $"IF NOT EXISTS(SELECT 1 FROM {table.Table} WHERE {table.KeyAttribute} = @Reference) " +
+                        $"INSERT INTO {table.Table} " +
+                        $"({table.KeyAttribute}, {table.ValueAttribute}) " +
+                        $"VALUES(@Reference, @Reference)";
+                }
+                await _da.SaveData(connectionString, refs, sql);
+            }
+        }
+
+
+        private Task<IEnumerable<TableSchema>> GetColumnInfo(string connectionString, string table) =>
             _da.LoadData<TableSchema, dynamic>("dbo.sp_columns", new { TABLE_NAME = table }, connectionString);
+
     }
+
+
 }
