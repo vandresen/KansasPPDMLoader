@@ -13,56 +13,50 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - name: Setup .NET Core
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
 
-      - name: Install dependencies
+      - name: Restore dependencies
         run: dotnet restore
 
-      - name: Build
+      - name: Build project
         run: dotnet build --configuration Release --no-restore
 
-      - name: Publish
-        run: dotnet publish ./KansasPPDMLoaderConsole/KansasPPDMLoaderConsole.csproj -c Release --self-contained true -r win-x64 -p:PublishSingleFile=true
+      - name: Publish project
+        run: dotnet publish ./KansasPPDMLoaderConsole/KansasPPDMLoaderConsole.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
 
-      - name: View content
-        run: dir ./KansasPPDMLoaderConsole/bin/Release/net8.0/win-x64/publish
-
-      - name: Upload KansasPPDMLoader Build Artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload KansasPPDMLoader build artifact
+        uses: actions/upload-artifact@v3
         with:
           name: KansasPPDMLoader
-          path: ./KansasPPDMLoaderConsole/bin/Release/net8.0/win-x64/publish/KansasPPDMLoaderConsole.exe
+          path: publish/KansasPPDMLoaderConsole.exe
 
-      - name: Create release
-        id: create-new-release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download KansasPPDMLoader artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: KansasPPDMLoader
+          path: .
+
+      - name: Display downloaded files
+        run: ls -R
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.event.inputs.versionNumber }}
-          release_name: Release v${{ github.event.inputs.versionNumber }}
-          draft: false
-          prerelease: false
-
-      - name: Download KansasPPDMLoader artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: KansasPPDMLoader
-
-      - name: Install GitHub CLI
-        uses: cli/cli-action@v2
-
-      - name: Authenticate GitHub CLI
-        run: gh auth setup-git
+          name: Release v${{ github.event.inputs.versionNumber }}
+          files: KansasPPDMLoaderConsole.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload KansasPPDMLoader release asset
-        run: gh release upload v${{ github.event.inputs.versionNumber }} KansasPPDMLoader/KansasPPDMLoaderConsole.exe --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
